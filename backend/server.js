@@ -22,6 +22,7 @@ app.use("/grupos", require("./routes/grupos"));
 app.use("/horarios", require("./routes/horarios"));
 app.use("/clases", require("./routes/clases"));
 app.use("/asistencia", require("./routes/asistencia"));
+app.use("/materias", require("./routes/materias"));
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log("Servidor en puerto " + PORT));
