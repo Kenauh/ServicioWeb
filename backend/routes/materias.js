@@ -1,42 +1,45 @@
 const router = require("express").Router();
 const Horario = require("../models/Horario");
 const Usuario = require("../models/Usuario");
-const auth = require("../middleware/authMiddleware");
+const jwt = require("jsonwebtoken");
+const { JWT_SECRET } = require("../config");
 
-router.get("/", auth, async (req, res) => {
+router.post("/", async (req, res) => {
     try {
-        const alumnoId = req.user.id;
+        const { apikey } = req.body;
 
-        const alumno = await Usuario.findById(alumnoId);
-        if (!alumno) {
-            return res.status(404).json({ error: "Alumno no encontrado" });
+        if (!apikey) {
+            return res.status(400).json({ error: "Falta apikey" });
         }
 
-        if (!alumno.grupoId) {
+        let decoded;
+        try {
+            decoded = jwt.verify(apikey, JWT_SECRET);
+        } catch {
+            return res.status(401).json({ error: "Token inválido" });
+        }
+
+        const alumno = await Usuario.findById(decoded.id);
+
+        if (!alumno || !alumno.grupoId) {
             return res.status(404).json({ error: "Alumno sin grupo" });
         }
 
         const horarios = await Horario.find({ grupoId: alumno.grupoId });
 
-        if (!horarios || horarios.length === 0) {
-            return res.json([]);
-        }
-
-        const horariosFormateados = horarios.map(h => ({
-            dia: h.dia,
-            horaInicial: h.horaInicio,
-            horaFinal: h.horaFin
-        }));
-
         res.json([
             {
                 materia: "Base de datos",
-                horarios: horariosFormateados
+                horarios: horarios.map(h => ({
+                    dia: h.dia,
+                    horaInicial: h.horaInicio,
+                    horaFinal: h.horaFin
+                }))
             }
         ]);
 
     } catch (err) {
-        console.error("ERROR:", err);
+        console.error(err);
         res.status(500).json({ error: "Error del servidor" });
     }
 });

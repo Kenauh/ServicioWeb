@@ -2,43 +2,50 @@ const router = require("express").Router();
 const Asistencia = require("../models/Asistencia");
 const Usuario = require("../models/Usuario");
 const Horario = require("../models/Horario");
-const auth = require("../middleware/authMiddleware");
-const Clase = require("../models/Clase");
+const jwt = require("jsonwebtoken");
+const { JWT_SECRET } = require("../config");
 
 function formatearFecha(fecha) {
-    return fecha.toString(); // "Thu Apr 16 2026 19:46:34 GMT-0600 ..."
+    return fecha.toString();
 }
 
-function nombreDia(fecha) {
-    return fecha.toLocaleDateString("es-MX", { weekday: "long" }).toLowerCase();
+function limpiarTexto(texto) {
+    return texto
+        .toLowerCase()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "");
 }
 
-router.post("/registrar", auth, async (req, res) => {
+router.post("/registrar", async (req, res) => {
     try {
-        const { qr, fechaHora } = req.body;
-        const alumnoId = req.user.id;
+        const { apikey, dipositivoId, alumnoId, materiaId, fechaHora } = req.body;
 
-        const clase = await Clase.findOne({ codigoQR: qr, activa: true });
-        if (!clase) {
-            return res.status(400).json({ error: "QR inválido o clase cerrada" });
+        if (!apikey || !alumnoId || !materiaId || !fechaHora) {
+            return res.status(400).json({ error: "Datos incompletos" });
+        }
+
+        try {
+            jwt.verify(apikey, JWT_SECRET);
+        } catch {
+            return res.status(401).json({ error: "Token inválido" });
         }
 
         const alumno = await Usuario.findById(alumnoId);
         if (!alumno || !alumno.grupoId) {
-            return res.status(404).json({ error: "Alumno sin grupo" });
-        }
-
-        // validar que pertenezca al grupo
-        if (String(alumno.grupoId) !== String(clase.grupoId)) {
-            return res.status(403).json({ error: "No pertenece a este grupo" });
+            return res.status(404).json({ error: "Alumno no encontrado" });
         }
 
         const horarios = await Horario.find({ grupoId: alumno.grupoId });
 
-        const fecha = new Date(fechaHora);
-        const hoy = fecha.toLocaleDateString("es-MX", { weekday: "long" }).toLowerCase();
+        const fecha = new Date(String(fechaHora));
 
-        const horario = horarios.find(h => h.dia.toLowerCase() === hoy);
+        const hoy = limpiarTexto(
+            fecha.toLocaleDateString("es-MX", { weekday: "long" })
+        );
+
+        const horario = horarios.find(
+            h => limpiarTexto(h.dia) === hoy
+        );
 
         if (!horario) {
             return res.status(400).json({ error: "No hay clase hoy" });
@@ -48,7 +55,7 @@ router.post("/registrar", auth, async (req, res) => {
         const [h, m] = horario.horaInicio.split(":");
         const inicio = parseInt(h) * 60 + parseInt(m);
 
-        let estado = "falta";
+        let estado = "retardo";
 
         if (minutos <= inicio + horario.toleranciaMin) {
             estado = "asistencia";
@@ -56,15 +63,15 @@ router.post("/registrar", auth, async (req, res) => {
             estado = "retardo";
         }
 
-        const inicioDia = new Date(fechaHora);
-        inicioDia.setHours(0,0,0,0);
+        const inicioDia = new Date(fecha);
+        inicioDia.setHours(0, 0, 0, 0);
 
-        const finDia = new Date(fechaHora);
-        finDia.setHours(23,59,59,999);
+        const finDia = new Date(fecha);
+        finDia.setHours(23, 59, 59, 999);
 
         const ya = await Asistencia.findOne({
             alumnoId,
-            claseId: clase._id.toString(),
+            materiaId,
             horaRegistro: { $gte: inicioDia, $lte: finDia }
         });
 
@@ -74,7 +81,7 @@ router.post("/registrar", auth, async (req, res) => {
 
         const asistencia = new Asistencia({
             alumnoId,
-            claseId: clase._id.toString(),
+            materiaId,
             estado,
             horaRegistro: fecha
         });
@@ -82,7 +89,7 @@ router.post("/registrar", auth, async (req, res) => {
         await asistencia.save();
 
         res.json({
-            fecha: fecha.toString(),
+            fecha: formatearFecha(fecha),
             estado
         });
 
@@ -92,11 +99,25 @@ router.post("/registrar", auth, async (req, res) => {
     }
 });
 
-router.get("/historial", auth, async (req, res) => {
+router.post("/historial", async (req, res) => {
     try {
-        const alumnoId = req.user.id;
+        const { apikey } = req.body;
 
-        const asistencias = await Asistencia.find({ alumnoId }).sort({ horaRegistro: -1 });
+        if (!apikey) {
+            return res.status(400).json({ error: "Falta apikey" });
+        }
+
+        let decoded;
+        try {
+            decoded = jwt.verify(apikey, JWT_SECRET);
+        } catch {
+            return res.status(401).json({ error: "Token inválido" });
+        }
+
+        const alumnoId = decoded.id;
+
+        const asistencias = await Asistencia.find({ alumnoId })
+            .sort({ horaRegistro: -1 });
 
         const resultado = asistencias.map(a => ({
             fecha: formatearFecha(a.horaRegistro),

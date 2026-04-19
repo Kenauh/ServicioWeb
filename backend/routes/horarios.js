@@ -1,9 +1,10 @@
 const router = require("express").Router();
 const Horario = require("../models/Horario");
 const Usuario = require("../models/Usuario");
-const auth = require("../middleware/authMiddleware");
+const jwt = require("jsonwebtoken");
+const { JWT_SECRET } = require("../config");
 
-router.post("/", auth, async (req, res) => {
+router.post("/crear", async (req, res) => {
     try {
         const { grupoId, dia, horaInicio, horaFin, toleranciaMin } = req.body;
 
@@ -13,7 +14,7 @@ router.post("/", auth, async (req, res) => {
 
         const horario = new Horario({
             grupoId,
-            dia: dia.toLowerCase(),
+            dia: String(dia).toLowerCase(),
             horaInicio,
             horaFin,
             toleranciaMin
@@ -24,13 +25,27 @@ router.post("/", auth, async (req, res) => {
         res.json(horario);
 
     } catch (err) {
+        console.error(err);
         res.status(500).json({ error: "Error del servidor" });
     }
 });
 
-router.get("/", auth, async (req, res) => {
+router.post("/", async (req, res) => {
     try {
-        const alumno = await Usuario.findById(req.user.id);
+        const { apikey } = req.body;
+
+        if (!apikey) {
+            return res.status(400).json({ error: "Falta apikey" });
+        }
+
+        let decoded;
+        try {
+            decoded = jwt.verify(apikey, JWT_SECRET);
+        } catch {
+            return res.status(401).json({ error: "Token inválido" });
+        }
+
+        const alumno = await Usuario.findById(decoded.id);
 
         if (!alumno || !alumno.grupoId) {
             return res.status(404).json({ error: "Alumno sin grupo" });
@@ -41,6 +56,7 @@ router.get("/", auth, async (req, res) => {
         res.json(horarios);
 
     } catch (err) {
+        console.error(err);
         res.status(500).json({ error: "Error del servidor" });
     }
 });

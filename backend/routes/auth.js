@@ -5,24 +5,27 @@ const { JWT_SECRET } = require("../config");
 
 router.post("/login", async (req, res) => {
     try {
-        const { usuario, contrsenia } = req.body;
+        let { usuario, contrsenia } = req.body;
 
         if (!usuario || !contrsenia) {
             return res.status(400).json({ error: "Datos incompletos" });
         }
 
-        const user = await Usuario.findOne({correo: usuario.trim().toLowerCase()});
+        usuario = String(usuario).trim();
+        contrsenia = String(contrsenia).trim();
+
+        const user = await Usuario.findOne({ nombre: usuario });
 
         if (!user) {
             return res.status(401).json({ error: "Usuario no encontrado" });
         }
 
-        if (String(user.password).trim() !== String(contrsenia).trim()) {
+        if (String(user.password).trim() !== contrsenia) {
             return res.status(401).json({ error: "Password incorrecto" });
         }
 
         const token = jwt.sign(
-            { id: user._id, rol: user.rol },
+            { id: user._id }, 
             JWT_SECRET,
             { expiresIn: "1d" }
         );
@@ -36,6 +39,7 @@ router.post("/login", async (req, res) => {
         });
 
     } catch (err) {
+        console.error(err);
         res.status(500).json({ error: "Error del servidor" });
     }
 });
